@@ -72,6 +72,31 @@ npm run dev
   `backend/app/routers/<模块>.py`，业务规则在 `backend/app/services/<模块>.py`。
 - 列表接口统一返回 `{ items, total, page, size }`，动作接口统一返回 `{ ok, message }`。
 - 状态流转只允许在 `app/services` 里改，路由层不做业务判断。
+- 动作判定与字段输出只有一份实现：`app/services/template_actions.py`（判定、解析、版本快照）
+  和 `app/services/base.py`（各模块共用的列表 / 登记 / 动作流程）。新模块只声明字段与状态序列。
+
+## 采集日志解析 → 采集结果校验
+
+日志模板的状态与解析规则绑定在同一个版本上（`logparse_versions`），版本号只在解析规则变化时前进。
+
+| 接口 | 说明 |
+| --- | --- |
+| `POST /api/logparse/{id}/actions` | 启用 / 暂停 / 关闭模板；关闭是终态，其后不再产生结构化输出 |
+| `POST /api/logparse/{id}/rule` | 修改解析规则，推进版本；已关闭的模板拒绝修改 |
+| `POST /api/logparse/{id}/callbacks` | 解析回调，`callback_id` 幂等；关闭后回调被拒绝 |
+| `GET /api/logparse/exceptions` | 异常日志清单：只含解析失败与回调拒绝 |
+| `GET /api/verify/exception-logs` | 采集校验读取异常日志清单 |
+| `GET /api/verify/checklist` | 修复日志模板动作核对清单（动作 / 结构化输出 / 异常依据） |
+| `GET /api/verify/repair-queue` | 修复日志模板动作队列 |
+| `POST /api/verify/refresh` | 其它业务入口改动模板后重算清单 |
+
+关闭模板与解析回调同时提交时共用一把锁，两种结果都是确定且可继续的：
+
+- 关闭先行并拒绝回调：模板显示已关闭，异常日志清单出现一条「回调拒绝」记录；
+- 回调先行后再关闭：异常日志清单包含本次结果，模板关闭时间晚于回调记录时间。
+
+解析失败保留原始字段并进入异常清单；正常日志不进异常清单；重复回调只确认一次。
+`VERI-0002` 绑定 `LOGP-0002`，模板关闭后只能看到上一批完整结构化结果。
 
 领域：数据工程
 子方向：数据采集、爬虫与RPA

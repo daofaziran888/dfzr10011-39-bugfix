@@ -1,12 +1,16 @@
 """内存数据仓库：给每个业务模块准备一份可筛选、可流转的示例数据。
 
 真实项目里这里会换成数据库访问层；当前实现只依赖标准库，保证克隆下来就能起。
+
+除了 16 个业务模块表，解析回调、版本快照、异常日志清单、校验核对清单这些运行期表格
+放在 ``aux`` 里：它们不参与运营概览的业务模块统计，避免多出来的表把模块数量改掉。
 """
 from __future__ import annotations
 
 from typing import Any
 
 from app.seed import SEED_ROWS
+from app.seed_ops import build_aux_rows, normalize_seed_rows
 
 
 class Store:
@@ -14,12 +18,21 @@ class Store:
         self._tables: dict[str, list[dict[str, Any]]] = {
             name: [dict(row) for row in rows] for name, rows in SEED_ROWS.items()
         }
+        # 模块内的状态字段（模板状态 / 规则状态等）必须与 status 同源，列表和详情才不会对不上。
+        normalize_seed_rows(self._tables)
+        self._aux: dict[str, list[dict[str, Any]]] = build_aux_rows(self._tables)
 
     def module_names(self) -> list[str]:
         return sorted(self._tables)
 
     def rows(self, module: str) -> list[dict[str, Any]]:
+        if module in self._aux:
+            return self._aux[module]
         return self._tables.setdefault(module, [])
+
+    def aux(self, name: str) -> list[dict[str, Any]]:
+        """运行期表格（不带业务模块语义，不进概览）。"""
+        return self._aux.setdefault(name, [])
 
     def find(self, module: str, entry_id: int) -> dict[str, Any] | None:
         for row in self.rows(module):
